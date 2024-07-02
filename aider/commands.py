@@ -121,7 +121,6 @@ class Commands:
     def run(self, inp):
         if inp.startswith("!"):
             return self.do_run("run", inp[1:])
-            return
 
         res = self.matching_commands(inp)
         if res is None:
@@ -332,10 +331,7 @@ class Commands:
                 return
 
         last_commit = self.coder.repo.repo.head.commit
-        if (
-            not last_commit.message.startswith("aider:")
-            or last_commit.hexsha[:7] != self.coder.last_aider_commit_hash
-        ):
+        if last_commit.hexsha[:7] != self.coder.last_aider_commit_hash:
             self.io.tool_error("The last commit was not made by aider in this chat session.")
             self.io.tool_error(
                 "You could try `/git reset --hard HEAD^` but be aware that this is a destructive"
@@ -617,14 +613,14 @@ class Commands:
             self.io.tool_output("\nNo files in chat or git repo.")
             return
 
-        if chat_files:
-            self.io.tool_output("Files in chat:\n")
-        for file in chat_files:
+        if other_files:
+            self.io.tool_output("Repo files not in the chat:\n")
+        for file in other_files:
             self.io.tool_output(f"  {file}")
 
-        if other_files:
-            self.io.tool_output("\nRepo files not in the chat:\n")
-        for file in other_files:
+        if chat_files:
+            self.io.tool_output("\nFiles in chat:\n")
+        for file in chat_files:
             self.io.tool_output(f"  {file}")
 
     def cmd_help(self, args):

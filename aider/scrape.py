@@ -4,11 +4,13 @@ import re
 import sys
 
 import httpx
+import playwright
 import pypandoc
 from bs4 import BeautifulSoup
 from playwright.sync_api import sync_playwright
 
 from aider import __version__, urls
+from aider.dump import dump  # noqa: F401
 
 aider_user_agent = f"Aider/{__version__} +{urls.website}"
 
@@ -19,7 +21,7 @@ For better web scraping, install Playwright chromium with this command in your t
 
     playwright install --with-deps chromium
 
-See {urls.enable_playwrite} for more info.
+See {urls.enable_playwright} for more info.
 """
 
 
@@ -79,7 +81,10 @@ class Scraper:
             user_agent += " " + aider_user_agent
 
             page = browser.new_page(user_agent=user_agent)
-            page.goto(url)
+            try:
+                page.goto(url, wait_until="networkidle", timeout=5000)
+            except playwright._impl._errors.TimeoutError:
+                pass
             content = page.content()
             browser.close()
 

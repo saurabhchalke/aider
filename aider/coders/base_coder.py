@@ -8,11 +8,11 @@ import sys
 import threading
 import time
 import traceback
+from collections import defaultdict
 from json.decoder import JSONDecodeError
 from pathlib import Path
 
 import git
-import openai
 from jsonschema import Draft7Validator
 from rich.console import Console, Text
 from rich.markdown import Markdown
@@ -27,7 +27,7 @@ from aider.mdstream import MarkdownStream
 from aider.repo import GitRepo
 from aider.repomap import RepoMap
 from aider.sendchat import send_with_retries
-from aider.utils import is_image_file
+from aider.utils import format_content, format_messages, is_image_file
 
 from ..dump import dump  # noqa: F401
 
@@ -36,7 +36,7 @@ class MissingAPIKeyError(ValueError):
     pass
 
 
-class ExhaustedContextWindow(Exception):
+class FinishReasonLength(Exception):
     pass
 
 
@@ -66,6 +66,7 @@ class Coder:
     test_cmd = None
     lint_outcome = None
     test_outcome = None
+    multi_response_content = ""
 
     @classmethod
     def create(
@@ -218,6 +219,9 @@ class Coder:
         auto_test=False,
         lint_cmds=None,
         test_cmd=None,
+        attribute_author=True,
+        attribute_committer=True,
+        attribute_commit_message=False,
     ):
         if not fnames:
             fnames = []
@@ -275,6 +279,9 @@ class Coder:
                     git_dname,
                     aider_ignore_file,
                     models=main_model.commit_message_models(),
+                    attribute_author=attribute_author,
+                    attribute_committer=attribute_committer,
+                    attribute_commit_message=attribute_commit_message,
                 )
                 self.root = self.repo.root
             except FileNotFoundError:
@@ -468,6 +475,21 @@ class Coder:
         words = set(re.split(r"\W+", text))
         return words
 
+    def get_ident_filename_matches(self, idents):
+        all_fnames = defaultdict(set)
+        for fname in self.get_all_relative_files():
+            base = Path(fname).with_suffix("").name.lower()
+            if len(base) >= 5:
+                all_fnames[base].add(fname)
+
+        matches = set()
+        for ident in idents:
+            if len(ident) < 5:
+                continue
+            matches.update(all_fnames[ident.lower()])
+
+        return matches
+
     def get_repo_map(self):
         if not self.repo_map:
             return
@@ -475,6 +497,8 @@ class Coder:
         cur_msg_text = self.get_cur_message_text()
         mentioned_fnames = self.get_file_mentions(cur_msg_text)
         mentioned_idents = self.get_ident_mentions(cur_msg_text)
+
+        mentioned_fnames.update(self.get_ident_filename_matches(mentioned_idents))
 
         other_files = set(self.get_all_abs_files()) - set(self.abs_fnames)
         repo_content = self.repo_map.get_repo_map(
@@ -786,30 +810,57 @@ class Coder:
         if self.verbose:
             utils.show_messages(messages, functions=self.functions)
 
+        self.multi_response_content = ""
+        if self.show_pretty() and self.stream:
+            mdargs = dict(style=self.assistant_output_color, code_theme=self.code_theme)
+            self.mdstream = MarkdownStream(mdargs=mdargs)
+        else:
+            self.mdstream = None
+
         exhausted = False
         interrupted = False
         try:
-            yield from self.send(messages, functions=self.functions)
-        except KeyboardInterrupt:
-            interrupted = True
-        except ExhaustedContextWindow:
-            exhausted = True
-        except litellm.exceptions.BadRequestError as err:
-            self.io.tool_error(f"BadRequestError: {err}")
-            return
-        except openai.BadRequestError as err:
-            if "maximum context length" in str(err):
-                exhausted = True
-            else:
-                raise err
+            while True:
+                try:
+                    yield from self.send(messages, functions=self.functions)
+                    break
+                except KeyboardInterrupt:
+                    interrupted = True
+                    break
+                except litellm.ContextWindowExceededError:
+                    # The input is overflowing the context window!
+                    exhausted = True
+                    break
+                except litellm.exceptions.BadRequestError as br_err:
+                    self.io.tool_error(f"BadRequestError: {br_err}")
+                    return
+                except FinishReasonLength:
+                    # We hit the 4k output limit!
+                    if not self.main_model.can_prefill:
+                        exhausted = True
+                        break
+
+                    self.multi_response_content = self.get_multi_response_content()
+
+                    if messages[-1]["role"] == "assistant":
+                        messages[-1]["content"] = self.multi_response_content
+                    else:
+                        messages.append(dict(role="assistant", content=self.multi_response_content))
+                except Exception as err:
+                    self.io.tool_error(f"Unexpected error: {err}")
+                    traceback.print_exc()
+                    return
+        finally:
+            if self.mdstream:
+                self.live_incremental_response(True)
+                self.mdstream = None
+
+            self.partial_response_content = self.get_multi_response_content(True)
+            self.multi_response_content = ""
 
         if exhausted:
+            self.show_exhausted_error()
             self.num_exhausted_context_windows += 1
-            self.io.tool_error("The chat session is larger than the context window!\n")
-            self.commands.cmd_tokens("")
-            self.io.tool_error("\nTo reduce token usage:")
-            self.io.tool_error(" - Use /drop to remove unneeded files from the chat session.")
-            self.io.tool_error(" - Use /clear to clear chat history.")
             return
 
         if self.partial_response_function_call:
@@ -877,6 +928,63 @@ class Coder:
                 self.reflected_message += "\n\n" + add_rel_files_message
             else:
                 self.reflected_message = add_rel_files_message
+
+    def show_exhausted_error(self):
+        output_tokens = 0
+        if self.partial_response_content:
+            output_tokens = self.main_model.token_count(self.partial_response_content)
+        max_output_tokens = self.main_model.info.get("max_output_tokens", 0)
+
+        input_tokens = self.main_model.token_count(self.format_messages())
+        max_input_tokens = self.main_model.info.get("max_input_tokens", 0)
+
+        total_tokens = input_tokens + output_tokens
+
+        fudge = 0.7
+
+        out_err = ""
+        if output_tokens >= max_output_tokens * fudge:
+            out_err = " -- possibly exceeded output limit!"
+
+        inp_err = ""
+        if input_tokens >= max_input_tokens * fudge:
+            inp_err = " -- possibly exhausted context window!"
+
+        tot_err = ""
+        if total_tokens >= max_input_tokens * fudge:
+            tot_err = " -- possibly exhausted context window!"
+
+        res = ["", ""]
+        res.append(f"Model {self.main_model.name} has hit a token limit!")
+        res.append("Token counts below are approximate.")
+        res.append("")
+        res.append(f"Input tokens: ~{input_tokens:,} of {max_input_tokens:,}{inp_err}")
+        res.append(f"Output tokens: ~{output_tokens:,} of {max_output_tokens:,}{out_err}")
+        res.append(f"Total tokens: ~{total_tokens:,} of {max_input_tokens:,}{tot_err}")
+
+        if output_tokens >= max_output_tokens:
+            res.append("")
+            res.append("To reduce output tokens:")
+            res.append("- Ask for smaller changes in each request.")
+            res.append("- Break your code into smaller source files.")
+            if "diff" not in self.main_model.edit_format:
+                res.append(
+                    "- Use a stronger model like gpt-4o, sonnet or opus that can return diffs."
+                )
+
+        if input_tokens >= max_input_tokens or total_tokens >= max_input_tokens:
+            res.append("")
+            res.append("To reduce input tokens:")
+            res.append("- Use /tokens to see token usage.")
+            res.append("- Use /drop to remove unneeded files from the chat session.")
+            res.append("- Use /clear to clear the chat history.")
+            res.append("- Break your code into smaller source files.")
+
+        res.append("")
+        res.append(f"For more info: {urls.token_limits}")
+
+        res = "".join([line + "\n" for line in res])
+        self.io.tool_error(res)
 
     def lint_edited(self, fnames):
         res = ""
@@ -960,6 +1068,8 @@ class Coder:
         self.partial_response_content = ""
         self.partial_response_function_call = dict()
 
+        self.io.log_llm_history("TO LLM", format_messages(messages))
+
         interrupted = False
         try:
             hash_object, completion = send_with_retries(
@@ -974,14 +1084,19 @@ class Coder:
         except KeyboardInterrupt:
             self.keyboard_interrupt()
             interrupted = True
+        finally:
+            self.io.log_llm_history(
+                "LLM RESPONSE",
+                format_content("ASSISTANT", self.partial_response_content),
+            )
 
-        if self.partial_response_content:
-            self.io.ai_output(self.partial_response_content)
-        elif self.partial_response_function_call:
-            # TODO: push this into subclasses
-            args = self.parse_partial_args()
-            if args:
-                self.io.ai_output(json.dumps(args, indent=4))
+            if self.partial_response_content:
+                self.io.ai_output(self.partial_response_content)
+            elif self.partial_response_function_call:
+                # TODO: push this into subclasses
+                args = self.parse_partial_args()
+                if args:
+                    self.io.ai_output(json.dumps(args, indent=4))
 
         if interrupted:
             raise KeyboardInterrupt
@@ -1016,7 +1131,7 @@ class Coder:
         if show_func_err and show_content_err:
             self.io.tool_error(show_func_err)
             self.io.tool_error(show_content_err)
-            raise Exception("No data found in openai response!")
+            raise Exception("No data found in LLM response!")
 
         tokens = None
         if hasattr(completion, "usage") and completion.usage is not None:
@@ -1044,61 +1159,62 @@ class Coder:
         if tokens is not None:
             self.io.tool_output(tokens)
 
+        if (
+            hasattr(completion.choices[0], "finish_reason")
+            and completion.choices[0].finish_reason == "length"
+        ):
+            raise FinishReasonLength()
+
     def show_send_output_stream(self, completion):
-        if self.show_pretty():
-            mdargs = dict(style=self.assistant_output_color, code_theme=self.code_theme)
-            mdstream = MarkdownStream(mdargs=mdargs)
-        else:
-            mdstream = None
+        for chunk in completion:
+            if len(chunk.choices) == 0:
+                continue
 
-        try:
-            for chunk in completion:
-                if len(chunk.choices) == 0:
-                    continue
+            if (
+                hasattr(chunk.choices[0], "finish_reason")
+                and chunk.choices[0].finish_reason == "length"
+            ):
+                raise FinishReasonLength()
 
-                if (
-                    hasattr(chunk.choices[0], "finish_reason")
-                    and chunk.choices[0].finish_reason == "length"
-                ):
-                    raise ExhaustedContextWindow()
+            try:
+                func = chunk.choices[0].delta.function_call
+                # dump(func)
+                for k, v in func.items():
+                    if k in self.partial_response_function_call:
+                        self.partial_response_function_call[k] += v
+                    else:
+                        self.partial_response_function_call[k] = v
+            except AttributeError:
+                pass
 
-                try:
-                    func = chunk.choices[0].delta.function_call
-                    # dump(func)
-                    for k, v in func.items():
-                        if k in self.partial_response_function_call:
-                            self.partial_response_function_call[k] += v
-                        else:
-                            self.partial_response_function_call[k] = v
-                except AttributeError:
-                    pass
+            try:
+                text = chunk.choices[0].delta.content
+                if text:
+                    self.partial_response_content += text
+            except AttributeError:
+                text = None
 
-                try:
-                    text = chunk.choices[0].delta.content
-                    if text:
-                        self.partial_response_content += text
-                except AttributeError:
-                    text = None
+            if self.show_pretty():
+                self.live_incremental_response(False)
+            elif text:
+                sys.stdout.write(text)
+                sys.stdout.flush()
+                yield text
 
-                if self.show_pretty():
-                    self.live_incremental_response(mdstream, False)
-                elif text:
-                    sys.stdout.write(text)
-                    sys.stdout.flush()
-                    yield text
-        finally:
-            if mdstream:
-                self.live_incremental_response(mdstream, True)
-
-    def live_incremental_response(self, mdstream, final):
+    def live_incremental_response(self, final):
         show_resp = self.render_incremental_response(final)
-        if not show_resp:
-            return
-
-        mdstream.update(show_resp, final=final)
+        self.mdstream.update(show_resp, final=final)
 
     def render_incremental_response(self, final):
-        return self.partial_response_content
+        return self.get_multi_response_content()
+
+    def get_multi_response_content(self, final=False):
+        cur = self.multi_response_content
+        new = self.partial_response_content
+
+        if new.rstrip() != new and not final:
+            new = new.rstrip()
+        return cur + new
 
     def get_rel_fname(self, fname):
         return os.path.relpath(fname, self.root)
@@ -1321,7 +1437,7 @@ class Coder:
 
     def auto_commit(self, edited):
         context = self.get_context_from_history(self.cur_messages)
-        res = self.repo.commit(fnames=edited, context=context, prefix="aider: ")
+        res = self.repo.commit(fnames=edited, context=context, aider_edits=True)
         if res:
             commit_hash, commit_message = res
             self.last_aider_commit_hash = commit_hash

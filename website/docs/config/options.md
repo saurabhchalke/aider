@@ -5,9 +5,15 @@ description: Details about all of aider's settings.
 ---
 
 # Options reference
+{: .no_toc }
 
 You can use `aider --help` to see all the available options,
 or review them below.
+
+- TOC
+{:toc}
+
+## Usage summary
 
 <!--[[[cog
 from aider.args import get_md_help
@@ -19,23 +25,28 @@ usage: aider [-h] [--openai-api-key] [--anthropic-api-key] [--model]
              [--35turbo] [--models] [--openai-api-base]
              [--openai-api-type] [--openai-api-version]
              [--openai-api-deployment-id] [--openai-organization-id]
-             [--edit-format] [--weak-model]
+             [--model-settings-file] [--model-metadata-file]
+             [--verify-ssl | --no-verify-ssl] [--edit-format]
+             [--weak-model]
              [--show-model-warnings | --no-show-model-warnings]
              [--map-tokens] [--max-chat-history-tokens] [--env-file]
              [--input-history-file] [--chat-history-file]
              [--restore-chat-history | --no-restore-chat-history]
-             [--dark-mode] [--light-mode] [--pretty | --no-pretty]
-             [--stream | --no-stream] [--user-input-color]
-             [--tool-output-color] [--tool-error-color]
-             [--assistant-output-color] [--code-theme]
-             [--show-diffs] [--git | --no-git]
+             [--llm-history-file] [--dark-mode] [--light-mode]
+             [--pretty | --no-pretty] [--stream | --no-stream]
+             [--user-input-color] [--tool-output-color]
+             [--tool-error-color] [--assistant-output-color]
+             [--code-theme] [--show-diffs] [--git | --no-git]
              [--gitignore | --no-gitignore] [--aiderignore]
              [--auto-commits | --no-auto-commits]
              [--dirty-commits | --no-dirty-commits]
+             [--attribute-author | --no-attribute-author]
+             [--attribute-committer | --no-attribute-committer]
+             [--attribute-commit-message | --no-attribute-commit-message]
              [--dry-run | --no-dry-run] [--commit] [--lint]
              [--lint-cmd] [--auto-lint | --no-auto-lint]
              [--test-cmd] [--auto-test | --no-auto-test] [--test]
-             [--voice-language] [--version] [--check-update]
+             [--vim] [--voice-language] [--version] [--check-update]
              [--skip-check-update] [--apply] [--yes] [-v]
              [--show-repo-map] [--show-prompts] [--message]
              [--message-file] [--encoding] [-c] [--gui]
@@ -57,12 +68,11 @@ Specify the OpenAI API key
 Environment variable: `OPENAI_API_KEY`  
 
 ### `--anthropic-api-key ANTHROPIC_API_KEY`
-Specify the OpenAI API key  
+Specify the Anthropic API key  
 Environment variable: `ANTHROPIC_API_KEY`  
 
 ### `--model MODEL`
-Specify the model to use for the main chat (default: gpt-4o)  
-Default: gpt-4o  
+Specify the model to use for the main chat  
 Environment variable: `AIDER_MODEL`  
 
 ### `--opus`
@@ -70,7 +80,7 @@ Use claude-3-opus-20240229 model for the main chat
 Environment variable: `AIDER_OPUS`  
 
 ### `--sonnet`
-Use claude-3-sonnet-20240229 model for the main chat  
+Use claude-3-5-sonnet-20240620 model for the main chat  
 Environment variable: `AIDER_SONNET`  
 
 ### `--4`
@@ -123,6 +133,22 @@ Environment variable: `OPENAI_API_DEPLOYMENT_ID`
 Specify the OpenAI organization ID  
 Environment variable: `OPENAI_ORGANIZATION_ID`  
 
+### `--model-settings-file MODEL_SETTINGS_FILE`
+Specify a file with aider model settings for unknown models  
+Environment variable: `AIDER_MODEL_SETTINGS_FILE`  
+
+### `--model-metadata-file MODEL_METADATA_FILE`
+Specify a file with context window and costs for unknown models  
+Environment variable: `AIDER_MODEL_METADATA_FILE`  
+
+### `--verify-ssl`
+Verify the SSL cert when connecting to models (default: True)  
+Default: True  
+Environment variable: `AIDER_VERIFY_SSL`  
+Aliases:
+  - `--verify-ssl`
+  - `--no-verify-ssl`
+
 ### `--edit-format EDIT_FORMAT`
 Specify what edit format the LLM should use (default depends on model)  
 Environment variable: `AIDER_EDIT_FORMAT`  
@@ -172,6 +198,10 @@ Environment variable: `AIDER_RESTORE_CHAT_HISTORY`
 Aliases:
   - `--restore-chat-history`
   - `--no-restore-chat-history`
+
+### `--llm-history-file LLM_HISTORY_FILE`
+Log the conversation with the LLM to this file (for example, .aider.llm.history)  
+Environment variable: `AIDER_LLM_HISTORY_FILE`  
 
 ## Output Settings:
 
@@ -269,6 +299,30 @@ Aliases:
   - `--dirty-commits`
   - `--no-dirty-commits`
 
+### `--attribute-author`
+Attribute aider code changes in the git author name (default: True)  
+Default: True  
+Environment variable: `AIDER_ATTRIBUTE_AUTHOR`  
+Aliases:
+  - `--attribute-author`
+  - `--no-attribute-author`
+
+### `--attribute-committer`
+Attribute aider commits in the git committer name (default: True)  
+Default: True  
+Environment variable: `AIDER_ATTRIBUTE_COMMITTER`  
+Aliases:
+  - `--attribute-committer`
+  - `--no-attribute-committer`
+
+### `--attribute-commit-message`
+Prefix commit messages with 'aider: ' (default: False)  
+Default: False  
+Environment variable: `AIDER_ATTRIBUTE_COMMIT_MESSAGE`  
+Aliases:
+  - `--attribute-commit-message`
+  - `--no-attribute-commit-message`
+
 ### `--dry-run`
 Perform a dry run without modifying files (default: False)  
 Default: False  
@@ -321,6 +375,11 @@ Default: False
 Environment variable: `AIDER_TEST`  
 
 ## Other Settings:
+
+### `--vim`
+Use VI editing mode in the terminal (default: False)  
+Default: False  
+Environment variable: `AIDER_VIM`  
 
 ### `--voice-language VOICE_LANGUAGE`
 Specify the language for voice using ISO 639-1 code (default: auto)  

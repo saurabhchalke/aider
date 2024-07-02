@@ -21,8 +21,8 @@ In these cases, here are some things you might try.
 
 ## Use a capable model
 
-If possible try using GPT-4o or Opus, as they are the strongest and most
-capable models.
+If possible try using GPT-4o, Claude 3.5 Sonnet or Claude 3 Opus, 
+as they are the strongest and most capable models.
 
 Weaker models
 are more prone to
@@ -33,8 +33,8 @@ so editing errors are probably unavoidable.
 ## Reduce distractions
 
 Many LLM now have very large context windows,
-but filling them with irrelevant code often
-cofuses the model.
+but filling them with irrelevant code or conversation 
+can cofuse the model.
 
 - Don't add too many files to the chat, *just* add the files you think need to be edited.
 Aider also sends the LLM a [map of your entire git repo](https://aider.chat/docs/repomap.html), so other relevant code will be included automatically.

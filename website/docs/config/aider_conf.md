@@ -10,6 +10,8 @@ Most of aider's options can be set in an `.aider.conf.yml` file,
 which can be placed in your home directory or at the root of
 your git repo. 
 
+{% include special-keys.md %}
+
 Below is a sample of the file, which you
 can also
 [download from GitHub](https://github.com/paul-gauthier/aider/blob/main/website/assets/sample.aider.conf.yml).
@@ -26,6 +28,7 @@ cog.outl("```")
 ```
 ##########################################################
 # Sample .aider.conf.yaml
+# This file lists *all* the valid configuration entries.
 # Place in your home dir, or at the root of your git repo.
 ##########################################################
 
@@ -41,16 +44,16 @@ cog.outl("```")
 ## Specify the OpenAI API key
 #openai-api-key:
 
-## Specify the OpenAI API key
+## Specify the Anthropic API key
 #anthropic-api-key:
 
-## Specify the model to use for the main chat (default: gpt-4o)
-#model: gpt-4o
+## Specify the model to use for the main chat
+#model:
 
 ## Use claude-3-opus-20240229 model for the main chat
 #opus: false
 
-## Use claude-3-sonnet-20240229 model for the main chat
+## Use claude-3-5-sonnet-20240620 model for the main chat
 #sonnet: false
 
 ## Use gpt-4-0613 model for the main chat
@@ -86,6 +89,15 @@ cog.outl("```")
 ## Specify the OpenAI organization ID
 #openai-organization-id:
 
+## Specify a file with aider model settings for unknown models
+#model-settings-file:
+
+## Specify a file with context window and costs for unknown models
+#model-metadata-file:
+
+## Verify the SSL cert when connecting to models (default: True)
+#verify-ssl: true
+
 ## Specify what edit format the LLM should use (default depends on model)
 #edit-format:
 
@@ -115,6 +127,9 @@ cog.outl("```")
 
 ## Restore the previous chat history messages (default: False)
 #restore-chat-history: false
+
+## Log the conversation with the LLM to this file (for example, .aider.llm.history)
+#llm-history-file:
 
 ##################
 # Output Settings:
@@ -167,6 +182,15 @@ cog.outl("```")
 ## Enable/disable commits when repo is found dirty (default: True)
 #dirty-commits: true
 
+## Attribute aider code changes in the git author name (default: True)
+#attribute-author: true
+
+## Attribute aider commits in the git committer name (default: True)
+#attribute-committer: true
+
+## Prefix commit messages with 'aider: ' (default: False)
+#attribute-commit-message: false
+
 ## Perform a dry run without modifying files (default: False)
 #dry-run: false
 
@@ -196,6 +220,9 @@ cog.outl("```")
 
 #################
 # Other Settings:
+
+## Use VI editing mode in the terminal (default: False)
+#vim: false
 
 ## Specify the language for voice using ISO 639-1 code (default: auto)
 #voice-language: en

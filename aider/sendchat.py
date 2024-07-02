@@ -3,7 +3,6 @@ import json
 
 import backoff
 import httpx
-import openai
 
 from aider.dump import dump  # noqa: F401
 from aider.litellm import litellm
@@ -41,6 +40,7 @@ def should_giveup(e):
         litellm.exceptions.RateLimitError,
         litellm.exceptions.ServiceUnavailableError,
         litellm.exceptions.Timeout,
+        litellm.llms.anthropic.AnthropicError,
     ),
     giveup=should_giveup,
     max_time=60,
@@ -85,5 +85,5 @@ def simple_send_with_retries(model_name, messages):
             stream=False,
         )
         return response.choices[0].message.content
-    except (AttributeError, openai.BadRequestError):
+    except (AttributeError, litellm.exceptions.BadRequestError):
         return
