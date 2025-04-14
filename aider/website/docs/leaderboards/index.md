@@ -34,7 +34,7 @@ human intervention.
       </th> <!-- Header checkbox added here -->
       <th style="padding: 8px; text-align: left;">Model</th>
       <th style="padding: 8px; text-align: center; width: 25%">Percent correct</th>
-      <th style="padding: 8px; text-align: center; width: 25%">Cost (log scale)</th>
+      <th style="padding: 8px; text-align: center; width: 25%">Cost</th>
       <th style="padding: 8px; text-align: left;" class="col-command">Command</th>
       <th style="padding: 8px; text-align: center; width: 10%" class="col-conform">Correct edit format</th>
       <th style="padding: 8px; text-align: left; width: 10%" class="col-edit-format">Edit Format</th>
@@ -66,7 +66,7 @@ human intervention.
           <div class="bar-viz cost-bar" data-cost="{{ row.total_cost }}" data-max-cost="{{ max_cost }}" style="width: 0%; background-color: rgba(13, 110, 253, 0.3); border-right: 1px solid rgba(13, 110, 253, 0.5);"></div>
           {% endif %}
           {% assign rounded_cost = row.total_cost | times: 1.0 | round: 2 %}
-          <span>{% if row.total_cost == 0 or rounded_cost == 0.00 %}?{% else %}${{ rounded_cost }}{% endif %}</span>
+          <span>{% if row.total_cost == 0 or rounded_cost == 0.00 %}{% else %}${{ rounded_cost }}{% endif %}</span>
         </td>
         <td style="padding: 8px;" class="col-command"><span><code>{{ row.command }}</code></span></td>
         <td style="padding: 8px; text-align: center;" class="col-conform"><span>{{ row.percent_cases_well_formed }}%</span></td>
@@ -180,6 +180,14 @@ human intervention.
     height: 36px;
     border-radius: 0 2px 2px 0; /* Slightly rounded end corners */
     /* Width and colors are set inline via style attribute */
+  }
+  /* Add a tooltip class for showing cost information on hover */
+  .cost-bar-cell:hover .bar-viz[style*="background-image"] {
+    animation: stripe-animation 2s linear infinite;
+  }
+  @keyframes stripe-animation {
+    0% { background-position: 0 0; }
+    100% { background-position: 20px 0; }
   }
   .bar-cell span {
      position: absolute; /* Position relative to the cell */

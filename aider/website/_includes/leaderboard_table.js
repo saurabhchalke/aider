@@ -199,26 +199,47 @@ document.addEventListener('DOMContentLoaded', function() {
 
   // Process cost bars
   const costBars = document.querySelectorAll('.cost-bar');
+  const MAX_DISPLAY_COST = 50; // $50 limit for visual display
+  
   costBars.forEach(bar => {
     const cost = parseFloat(bar.dataset.cost);
     const maxCost = parseFloat(bar.dataset.maxCost);
  
     if (cost > 0 && maxCost > 0) {
-      // Use log10(1 + x) for scaling. Adding 1 handles potential cost=0 and gives non-zero logs for cost > 0.
-      const logCost = Math.log10(1 + cost);
-      const logMaxCost = Math.log10(1 + maxCost);
- 
-      if (logMaxCost > 0) {
-        // Calculate percentage relative to the log of max cost
-        const percent = (logCost / logMaxCost) * 100;
-        // Clamp percentage between 0 and 100
-        bar.style.width = Math.max(0, Math.min(100, percent)) + '%';
-      } else {
-        // Handle edge case where maxCost is 0 (so logMaxCost is 0)
-        // If maxCost is 0, cost must also be 0, handled below.
-        // If maxCost > 0 but logMaxCost <= 0 (e.g., maxCost is very small), set width relative to cost?
-        // For simplicity, setting to 0 if logMaxCost isn't positive.
-        bar.style.width = '0%';
+      // Use $50 as the max for display purposes
+      const displayMaxCost = Math.min(MAX_DISPLAY_COST, maxCost);
+      // Calculate percentage based on the display max
+      const percent = Math.min(cost, displayMaxCost) / displayMaxCost * 100;
+      // Clamp percentage between 0 and 100
+      bar.style.width = Math.max(0, Math.min(100, percent)) + '%';
+      
+      // Mark bars that exceed the limit
+      if (cost > MAX_DISPLAY_COST) {
+        // Create a darker section at the end with diagonal stripes
+        const darkSection = document.createElement('div');
+        darkSection.className = 'bar-viz';
+        darkSection.style.width = '15%'; // From 85% to 100%
+        darkSection.style.left = '85%';
+        darkSection.style.backgroundColor = 'rgba(13, 110, 253, 0.6)'; // Darker blue
+        darkSection.style.borderRight = '1px solid rgba(13, 110, 253, 0.8)';
+        darkSection.style.zIndex = '1';
+        // Add diagonal stripes with CSS background
+        darkSection.style.backgroundImage = 'repeating-linear-gradient(45deg, rgba(255,255,255,0.3), rgba(255,255,255,0.3) 5px, transparent 5px, transparent 10px)';
+        bar.parentNode.appendChild(darkSection);
+        
+        // Add a dashed "tear line" at the transition point
+        const tearLine = document.createElement('div');
+        tearLine.style.position = 'absolute';
+        tearLine.style.left = '85%';
+        // Center the tear line vertically and make it 1.5x as tall as the bar
+        tearLine.style.top = '50%';
+        tearLine.style.transform = 'translateY(-50%)';
+        tearLine.style.height = '54px'; // 1.5x the bar height (36px)
+        tearLine.style.width = '2px';
+        tearLine.style.backgroundColor = 'white';
+        tearLine.style.borderLeft = '2px dashed rgba(0, 0, 0, 0.3)';
+        tearLine.style.zIndex = '2'; // Above the bar
+        bar.parentNode.appendChild(tearLine);
       }
     } else {
       // Set width to 0 if cost is 0 or negative
@@ -229,51 +250,38 @@ document.addEventListener('DOMContentLoaded', function() {
   // Calculate and add cost ticks dynamically
   const costCells = document.querySelectorAll('.cost-bar-cell');
   if (costCells.length > 0) {
-    // Find the max cost from the first available cost bar's data attribute
-    const firstCostBar = document.querySelector('.cost-bar');
-    const maxCost = parseFloat(firstCostBar?.dataset.maxCost || '1'); // Use 1 as fallback
+    const MAX_DISPLAY_COST = 50; // $50 limit for visual display
+    
+    // Generate fixed tick values at $0, $10, $20, $30, $40, $50
+    const tickValues = [0, 10, 20, 30, 40, 50];
+    
+    // Calculate percentage positions for each tick on the linear scale
+    const tickPercentages = tickValues.map(tickCost => {
+      return (tickCost / MAX_DISPLAY_COST) * 100;
+    });
 
-    if (maxCost > 0) {
-      const logMaxCost = Math.log10(1 + maxCost);
+    // Add tick divs to each cost cell
+    costCells.forEach(cell => {
+      const costBar = cell.querySelector('.cost-bar');
+      // Use optional chaining and provide '0' as fallback if costBar or dataset.cost is missing
+      const cost = parseFloat(costBar?.dataset?.cost || '0');
 
-      if (logMaxCost > 0) { // Ensure logMaxCost is positive to avoid division by zero or negative results
-        const tickValues = [];
-        // Generate ticks starting at $0, then $10, $20, $30... up to maxCost
-        tickValues.push(0); // Add tick at base (0 position)
-        for (let tickCost = 10; tickCost <= maxCost; tickCost += 10) {
-          tickValues.push(tickCost);
-        }
-
-        // Calculate percentage positions for each tick on the log scale
-        const tickPercentages = tickValues.map(tickCost => {
-          const logTickCost = Math.log10(1 + tickCost);
-          return (logTickCost / logMaxCost) * 100;
-        });
-
-        // Add tick divs to each cost cell
-        costCells.forEach(cell => {
-          const costBar = cell.querySelector('.cost-bar');
-          // Use optional chaining and provide '0' as fallback if costBar or dataset.cost is missing
-          const cost = parseFloat(costBar?.dataset?.cost || '0');
-
-          // Only add ticks if the cost is actually greater than 0
-          if (cost > 0) {
-            // Clear existing ticks if any (e.g., during updates, though not strictly needed here)
-            // cell.querySelectorAll('.cost-tick').forEach(t => t.remove());
-
-            tickPercentages.forEach(percent => {
-              // Ensure percentage is within valid range
-              if (percent >= 0 && percent <= 100) {
-                const tick = document.createElement('div');
-                tick.className = 'cost-tick';
-                tick.style.left = `${percent}%`;
-                cell.appendChild(tick);
-              }
-            });
+      // Only add ticks if the cost is actually greater than 0
+      if (cost > 0) {
+        tickPercentages.forEach((percent, index) => {
+          // Ensure percentage is within valid range
+          if (percent >= 0 && percent <= 100) {
+            const tick = document.createElement('div');
+            tick.className = 'cost-tick';
+            tick.style.left = `${percent}%`;
+            
+            // No dollar amount labels
+            
+            cell.appendChild(tick);
           }
         });
       }
-    }
+    });
   }
 
 
