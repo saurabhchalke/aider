@@ -8,6 +8,7 @@ import platform
 import sys
 import time
 from dataclasses import dataclass, fields
+from datetime import datetime
 from pathlib import Path
 from typing import Optional, Union
 
@@ -17,6 +18,7 @@ from PIL import Image
 
 from aider.dump import dump  # noqa: F401
 from aider.llm import litellm
+from aider.openrouter import OpenRouterModelManager
 from aider.sendchat import ensure_alternating_roles, sanity_check_messages
 from aider.utils import check_pip_install_extra
 
@@ -69,6 +71,8 @@ claude-3-opus-20240229
 claude-3-sonnet-20240229
 claude-3-5-sonnet-20240620
 claude-3-5-sonnet-20241022
+claude-sonnet-4-20250514
+claude-opus-4-20250514
 """
 
 ANTHROPIC_MODELS = [ln.strip() for ln in ANTHROPIC_MODELS.splitlines() if ln.strip()]
@@ -76,9 +80,9 @@ ANTHROPIC_MODELS = [ln.strip() for ln in ANTHROPIC_MODELS.splitlines() if ln.str
 # Mapping of model aliases to their canonical names
 MODEL_ALIASES = {
     # Claude models
-    "sonnet": "anthropic/claude-3-7-sonnet-20250219",
+    "sonnet": "anthropic/claude-sonnet-4-20250514",
     "haiku": "claude-3-5-haiku-20241022",
-    "opus": "claude-3-opus-20240229",
+    "opus": "claude-opus-4-20250514",
     # GPT models
     "4": "gpt-4-0613",
     "4o": "gpt-4o",
@@ -149,8 +153,13 @@ class ModelInfoManager:
         self.verify_ssl = True
         self._cache_loaded = False
 
+        # Manager for the cached OpenRouter model database
+        self.openrouter_manager = OpenRouterModelManager()
+
     def set_verify_ssl(self, verify_ssl):
         self.verify_ssl = verify_ssl
+        if hasattr(self, "openrouter_manager"):
+            self.openrouter_manager.set_verify_ssl(verify_ssl)
 
     def _load_cache(self):
         if self._cache_loaded:
@@ -232,33 +241,43 @@ class ModelInfoManager:
             return litellm_info
 
         if not cached_info and model.startswith("openrouter/"):
+            # First try using the locally cached OpenRouter model database
+            openrouter_info = self.openrouter_manager.get_model_info(model)
+            if openrouter_info:
+                return openrouter_info
+
+            # Fallback to legacy web-scraping if the API cache does not contain the model
             openrouter_info = self.fetch_openrouter_model_info(model)
             if openrouter_info:
                 return openrouter_info
 
         return cached_info
 
-
     def fetch_openrouter_model_info(self, model):
         """
         Fetch model info by scraping the openrouter model page.
         Expected URL: https://openrouter.ai/<model_route>
         Example: openrouter/qwen/qwen-2.5-72b-instruct:free
-        Returns a dict with keys: max_tokens, max_input_tokens, max_output_tokens, input_cost_per_token, output_cost_per_token.
+        Returns a dict with keys: max_tokens, max_input_tokens, max_output_tokens,
+        input_cost_per_token, output_cost_per_token.
         """
-        url_part = model[len("openrouter/"):]
+        url_part = model[len("openrouter/") :]
         url = "https://openrouter.ai/" + url_part
         try:
             import requests
+
             response = requests.get(url, timeout=5, verify=self.verify_ssl)
             if response.status_code != 200:
                 return {}
             html = response.text
             import re
-            if re.search(rf'The model\s*.*{re.escape(url_part)}.* is not available', html, re.IGNORECASE):
+
+            if re.search(
+                rf"The model\s*.*{re.escape(url_part)}.* is not available", html, re.IGNORECASE
+            ):
                 print(f"\033[91mError: Model '{url_part}' is not available\033[0m")
                 return {}
-            text = re.sub(r'<[^>]+>', ' ', html)
+            text = re.sub(r"<[^>]+>", " ", html)
             context_match = re.search(r"([\d,]+)\s*context", text)
             if context_match:
                 context_str = context_match.group(1).replace(",", "")
@@ -282,6 +301,7 @@ class ModelInfoManager:
         except Exception as e:
             print("Error fetching openrouter info:", str(e))
             return {}
+
 
 model_info_manager = ModelInfoManager()
 
@@ -516,6 +536,14 @@ class Model(ModelSettings):
             self.examples_as_sys_msg = True
             self.use_temperature = 0.6
             self.extra_params = dict(top_p=0.95)
+            return  # <--
+
+        if "qwen3" in model and "235b" in model:
+            self.edit_format = "diff"
+            self.use_repo_map = True
+            self.system_prompt_prefix = "/no_think"
+            self.use_temperature = 0.7
+            self.extra_params = {"top_p": 0.8, "top_k": 20, "min_p": 0.0}
             return  # <--
 
         # use the defaults
@@ -848,6 +876,28 @@ class Model(ModelSettings):
     def is_ollama(self):
         return self.name.startswith("ollama/") or self.name.startswith("ollama_chat/")
 
+    def github_copilot_token_to_open_ai_key(self):
+        # check to see if there's an openai api key
+        # If so, check to see if it's expire
+        openai_api_key = "OPENAI_API_KEY"
+
+        if openai_api_key not in os.environ or (
+            int(dict(x.split("=") for x in os.environ[openai_api_key].split(";"))["exp"])
+            < int(datetime.now().timestamp())
+        ):
+            import requests
+
+            headers = {
+                "Authorization": f"Bearer {os.environ['GITHUB_COPILOT_TOKEN']}",
+                "Editor-Version": self.extra_params["extra_headers"]["Editor-Version"],
+                "Copilot-Integration-Id": self.extra_params["extra_headers"][
+                    "Copilot-Integration-Id"
+                ],
+                "Content-Type": "application/json",
+            }
+            res = requests.get("https://api.github.com/copilot_internal/v2/token", headers=headers)
+            os.environ[openai_api_key] = res.json()["token"]
+
     def send_completion(self, messages, functions, stream, temperature=None):
         if os.environ.get("AIDER_SANITY_CHECK_TURNS"):
             sanity_check_messages(messages)
@@ -889,6 +939,10 @@ class Model(ModelSettings):
             dump(kwargs)
         kwargs["messages"] = messages
 
+        # Are we using github copilot?
+        if "GITHUB_COPILOT_TOKEN" in os.environ:
+            self.github_copilot_token_to_open_ai_key()
+
         res = litellm.completion(**kwargs)
         return hash_object, res
 
@@ -899,6 +953,9 @@ class Model(ModelSettings):
         if "deepseek-reasoner" in self.name:
             messages = ensure_alternating_roles(messages)
         retry_delay = 0.125
+
+        if self.verbose:
+            dump(messages)
 
         while True:
             try:
