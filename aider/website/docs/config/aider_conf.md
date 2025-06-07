@@ -1,7 +1,7 @@
 ---
 parent: Configuration
 nav_order: 15
-description: How to configure aider with a yaml config file.
+description: How to configure aider with a YAML config file.
 ---
 
 # YAML config file
@@ -58,7 +58,7 @@ cog.outl("```")
 # Place in your home dir, or at the root of your git repo.
 ##########################################################
 
-# Note: You can only put OpenAI and Anthropic API keys in the yaml
+# Note: You can only put OpenAI and Anthropic API keys in the YAML
 # config file. Keys for all APIs can be stored in a .env file
 # https://aider.chat/docs/config/dotenv.html
 
@@ -440,6 +440,9 @@ cog.outl("```")
 ## Specify the language to use in the chat (default: None, uses system settings)
 #chat-language: xxx
 
+## Specify the language to use in the commit message (default: None, user language)
+#commit-language: xxx
+
 ## Always say yes to every confirmation
 #yes-always: false
 
@@ -481,6 +484,9 @@ cog.outl("```")
 
 ## Specify which editor to use for the /editor command
 #editor: xxx
+
+## Print shell completion script for the specified SHELL and exit. Supported shells: bash, tcsh, zsh. Example: aider --shell-completions bash
+#shell-completions: xxx
 
 ############################
 # Deprecated model settings:
