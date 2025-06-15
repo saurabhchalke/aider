@@ -749,7 +749,7 @@ class InputOutput:
         if not self.llm_history_file:
             return
         timestamp = datetime.now().isoformat(timespec="seconds")
-        with open(self.llm_history_file, "a", encoding=self.encoding) as log_file:
+        with open(self.llm_history_file, "a", encoding="utf-8") as log_file:
             log_file.write(f"{role.upper()} {timestamp}\n")
             log_file.write(content + "\n")
 
@@ -1001,7 +1001,11 @@ class InputOutput:
         self.console.print(*messages, style=style)
 
     def get_assistant_mdstream(self):
-        mdargs = dict(style=self.assistant_output_color, code_theme=self.code_theme)
+        mdargs = dict(
+            style=self.assistant_output_color,
+            code_theme=self.code_theme,
+            inline_code_lexer="text",
+        )
         mdStream = MarkdownStream(mdargs=mdargs)
         return mdStream
 
@@ -1144,18 +1148,19 @@ class InputOutput:
             ro_paths = []
             for rel_path in read_only_files:
                 abs_path = os.path.abspath(os.path.join(self.root, rel_path))
-                ro_paths.append(abs_path if len(abs_path) < len(rel_path) else rel_path)
+                ro_paths.append(Text(abs_path if len(abs_path) < len(rel_path) else rel_path))
 
-            files_with_label = ["Readonly:"] + ro_paths
+            files_with_label = [Text("Readonly:")] + ro_paths
             read_only_output = StringIO()
             Console(file=read_only_output, force_terminal=False).print(Columns(files_with_label))
             read_only_lines = read_only_output.getvalue().splitlines()
             console.print(Columns(files_with_label))
 
         if editable_files:
-            files_with_label = editable_files
+            text_editable_files = [Text(f) for f in editable_files]
+            files_with_label = text_editable_files
             if read_only_files:
-                files_with_label = ["Editable:"] + editable_files
+                files_with_label = [Text("Editable:")] + text_editable_files
                 editable_output = StringIO()
                 Console(file=editable_output, force_terminal=False).print(Columns(files_with_label))
                 editable_lines = editable_output.getvalue().splitlines()
